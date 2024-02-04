@@ -14,7 +14,7 @@ library(tidyverse)
 data.path<-"D:/data/Upscale_project_data/From_3PG_model/"
 f_NPP_test <- raster::raster(paste0(data.path,'/npp_anomalies/piab_2003.tif'))
 
-f_lim_env <- raster::raster(paste0(data.path,'/lim_factors_average/Fagus sylvatica_1991_2018_f_vpd_8.tif'))
+f_lim_env <- raster::raster(paste0(data.path,'/lim_factors_average/Fagus sylvatica_1991_2018_f_vpd_5.tif'))
 
 #
 raster::plot(f_NPP_test)
@@ -106,7 +106,8 @@ for (i in 1:length(df.lim_1991_2018_agg)) {
       group_by(id)%>%
       slice(which.min(lim_val))%>%
       mutate(specie_name=species_proc_name,
-             lim_var=substr(lim_longvar,str_length(lim_longvar)-5+1,str_length(lim_longvar)-2))
+             #select the limiting variables-->spearate the limiting factor by "_"
+             lim_var=unlist(str_split(substr(lim_longvar,str_length(lim_longvar)-5,str_length(lim_longvar)),"_",3))[2])
     #put the data between May-Sep together:
     df_species_temp<-bind_rows(df_species_temp,df.proc_final)
     rm(df.proc_final)
@@ -132,12 +133,14 @@ for (i in 1:length(df.lim_1991_2018_agg)) {
 names(df_tidy)<-species_names
 #save the data:
 save.path<-"./data/3PG/"
-save(df_tidy,file = paste0(save.path,"species_GS_limiting_vars.RDA"))
+# save(df_tidy,file = paste0(save.path,"species_GS_limiting_vars.RDA"))
 
-#
+##making the plots###
+# load(paste0(save.path,"species_GS_limiting_vars.RDA"))
+library(cowplot)
 simple_plot_map<-function(df,species_proc_name){
-  df<-df_tidy[[1]]
-  species_proc_name<-names(df_tidy)[1]
+  # df<-df_tidy[[1]]
+  # species_proc_name<-names(df_tidy)[1]
   #
   df<-df %>%
     mutate(lim_GS_categroy=case_when(lim_var_GS=="tmp"~1,
@@ -149,28 +152,91 @@ simple_plot_map<-function(df,species_proc_name){
   t_plot2<-raster::rasterFromXYZ(df[,c("x","y","lim_GS_categroy")])
   # t_plot<-raster::rasterFromXYZ(df[,c("x","y","lim_val_mean","lim_GS_categroy")])
 
-  par(mfrow=c(2,1))
-  raster::plot(t_plot1,main=species_proc_name)
+  # par(mfrow=c(2,1))
+  # raster::plot(t_plot1,main=species_proc_name)
+  # #using the ggplot2
+  #-->refer:https://stackoverflow.com/questions/33227182/how-to-set-use-ggplot2-to-map-a-raster
+  p_plot1<-ggplot() +
+    geom_tile(data=raster::as.data.frame(t_plot1, xy = TRUE),
+              aes(x=x, y=y, fill=lim_val_mean), alpha=0.8) +
+    # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
+    #              fill=NA, color="grey50", size=0.25) +
+    scale_fill_viridis_c(begin = 0,end = 1) +
+    coord_equal() +
+    theme_map() +
+    ggtitle(species_proc_name)+
+    theme(legend.position="right",
+          legend.key.width=unit(0.8, "cm"),
+          plot.title = element_text(hjust = 0.5),
+          panel.background = element_rect(fill = "transparent", colour = NA),
+          plot.background = element_rect(fill = "transparent", colour = NA)
+          )
+
   n=length(unique(df$lim_GS_categroy))
   # par(fig=c(0.55,1,0,1),new=T)
-  ##!!need to work here-->colors have some issues
+  #
+  df %>%
+    group_by(lim_var_GS)%>%
+    count()
+
   if(n==2){
-    if(unique(df$lim_GS_categroy))
-    raster::plot(t_plot2,col=c("red","green3"),
-                 main=species_proc_name,legend=FALSE)
-    legend("topright", legend = c("tmp", "vpd"),
-           fill = c("yellow", "green3"))
+    # raster::plot(t_plot2,col=c("orange","green3"),
+    #              main=species_proc_name,legend=FALSE)
+    # legend("topright", legend = c("tmp", "vpd"),
+    #        fill = c("orange", "green3"))
+    # #using ggplot2
+    p_plot2<-ggplot() +
+      geom_tile(data=raster::as.data.frame(t_plot2, xy = TRUE)%>%
+                  filter(!is.na(lim_GS_categroy))%>%
+                  mutate(lim_GS_var=factor(lim_GS_categroy,levels = c("1","2","3"))),
+                aes(x=x, y=y, fill=lim_GS_var), alpha=0.8) +
+      # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
+      #              fill=NA, color="grey50", size=0.25) +
+      scale_fill_manual(values = c("1"="orange","2"="green3","3"="skyblue"),
+                        labels=c("tmp","vpd","sw")) +
+      coord_equal() +
+      theme_map() +
+      ggtitle(species_proc_name)+
+      theme(legend.position="right",
+            legend.key.width=unit(0.8, "cm"),
+            plot.title = element_text(hjust = 0.5),
+            panel.background = element_rect(fill = "transparent", colour = NA),
+            plot.background = element_rect(fill = "transparent", colour = NA)
+      )
   }
   if(n==3){
-    raster::plot(t_plot2,col=rev(c("yellow","green3","skyblue")),
-                 main=species_proc_name,legend=FALSE)
-    legend("topright", legend = c("tmp", "vpd","sw"),
-           fill = c("yellow", "green3","skyblue"))
-  }
+    # raster::plot(t_plot2,col=c("orange","green3","skyblue"),
+    #              main=species_proc_name,legend=FALSE)
+    # legend("topright", legend = c("tmp", "vpd","sw"),
+    #        fill = c("orange", "green3","skyblue"))
+    #using ggplot2
+    p_plot2<-ggplot() +
+      geom_tile(data=raster::as.data.frame(t_plot2, xy = TRUE)%>%
+                  filter(!is.na(lim_GS_categroy))%>%
+                  mutate(lim_GS_var=factor(lim_GS_categroy,levels = c("1","2","3"))),
+                aes(x=x, y=y, fill=lim_GS_var), alpha=0.8) +
+      # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
+      #              fill=NA, color="grey50", size=0.25) +
+      scale_fill_manual(values = c("1"="orange","2"="green3","3"="skyblue"),
+                        labels=c("tmp","vpd","sw")) +
+      coord_equal() +
+      theme_map() +
+      ggtitle(species_proc_name)+
+      theme(legend.position="right",
+            legend.key.width=unit(0.8, "cm"),
+            plot.title = element_text(hjust = 0.5),
+            panel.background = element_rect(fill = "transparent", colour = NA),
+            plot.background = element_rect(fill = "transparent", colour = NA)
+      )
 
+  }
+p_merge<-plot_grid(p_plot1,p_plot2,align = "hv")
+#
+return(p_merge)
 }
 ##plotting the results:
 for (i in 1:length(df_tidy)) {
   simple_plot_map(df_tidy[[i]],names(df_tidy)[i])
 }
+
 
