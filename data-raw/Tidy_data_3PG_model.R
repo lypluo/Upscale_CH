@@ -52,9 +52,9 @@ list.files(paste0(data.path,'npp_anomalies/'), full.names = TRUE)[2:5] %>%
 
   head()
 
-#----------------------------
-#(1)processing the results from the limited environmental drivers
-#----------------------------
+##################################
+#processing the results from the limited environmental drivers
+##################################
 df.lim<-list.files(paste0(data.path,'lim_factors_average/'), full.names = TRUE)
 #only selecting the limiting factors in 1991-2018
 df.lim_1991_2018<-df.lim[grep("1991_2018",df.lim)]
@@ -73,8 +73,9 @@ for (i in 1:length(species)) {
 }
 names(df.lim_1991_2018_agg)<-species_names
 ####
-#working the
+#----------
 #-->identify the limited variables for each month(May-Sep) for each species
+#----------
 df_tidy<-list()
 for (i in 1:length(df.lim_1991_2018_agg)) {
   #
@@ -96,8 +97,9 @@ for (i in 1:length(df.lim_1991_2018_agg)) {
       raster::stack() %>%
       # raster::plot()
       raster::as.data.frame(., xy = TRUE)
-    #selected na values and identify the dominant variables
-    df.proc_final<-df.proc[!is.na(df.proc[,3]),]%>%
+    #identify the dominant variables
+    df.proc_final<-df.proc%>%
+      # df.proc[!is.na(df.proc[,3]),]%>%
       #https://stackoverflow.com/questions/63881552/how-to-just-keep-the-minimum-value-in-a-row-across-multiple-columns-and-make-all
       # mutate(lim_val= purrr::pmap(across(starts_with(species_proc_name)), min))
       rownames_to_column('id') %>%  # creates an ID number
@@ -138,6 +140,9 @@ save.path<-"./data/3PG/"
 ##making the plots###
 # load(paste0(save.path,"species_GS_limiting_vars.RDA"))
 library(cowplot)
+#----------
+#A. plotting the limiting factor for each species
+#----------
 simple_plot_map<-function(df,species_proc_name){
   # df<-df_tidy[[1]]
   # species_proc_name<-names(df_tidy)[1]
@@ -168,8 +173,9 @@ simple_plot_map<-function(df,species_proc_name){
     theme(legend.position="right",
           legend.key.width=unit(0.8, "cm"),
           plot.title = element_text(hjust = 0.5),
-          panel.background = element_rect(fill = "transparent", colour = NA),
-          plot.background = element_rect(fill = "transparent", colour = NA)
+          panel.background = element_rect(fill = "white", colour = NA),
+          plot.background = element_rect(fill = "white", colour = NA),
+          plot.margin = unit(c(0,0,0,0), "cm")
           )
 
   n=length(unique(df$lim_GS_categroy))
@@ -200,8 +206,9 @@ simple_plot_map<-function(df,species_proc_name){
       theme(legend.position="right",
             legend.key.width=unit(0.8, "cm"),
             plot.title = element_text(hjust = 0.5),
-            panel.background = element_rect(fill = "transparent", colour = NA),
-            plot.background = element_rect(fill = "transparent", colour = NA)
+            panel.background = element_rect(fill = "white", colour = NA),
+            plot.background = element_rect(fill = "white", colour = NA),
+            plot.margin = unit(c(0,0,0,0), "cm")
       )
   }
   if(n==3){
@@ -225,18 +232,102 @@ simple_plot_map<-function(df,species_proc_name){
       theme(legend.position="right",
             legend.key.width=unit(0.8, "cm"),
             plot.title = element_text(hjust = 0.5),
-            panel.background = element_rect(fill = "transparent", colour = NA),
-            plot.background = element_rect(fill = "transparent", colour = NA)
+            panel.background = element_rect(fill = "white", colour = NA),
+            plot.background = element_rect(fill = "white", colour = NA),
+            plot.margin = unit(c(0,0,0,0), "cm")
       )
 
   }
-p_merge<-plot_grid(p_plot1,p_plot2,align = "hv")
+p_merge<-plot_grid(p_plot1,p_plot2,nrow=2)
 #
 return(p_merge)
 }
 ##plotting the results:
+plot_all<-c()
 for (i in 1:length(df_tidy)) {
-  simple_plot_map(df_tidy[[i]],names(df_tidy)[i])
+  plot_merge<-simple_plot_map(df_tidy[[i]],names(df_tidy)[i])
+  plot_all[[i]]<-plot_merge
+  rm(plot_merge)
 }
+##merge all the plots:
+save.path<-"./manuscript/3PG_results/"
+p_all<-plot_grid(plot_all[[1]],plot_all[[2]],plot_all[[3]],plot_all[[4]],
+          plot_all[[5]],plot_all[[6]],plot_all[[7]],
+          align = "hv")
+ggsave(file=paste0(save.path,"limiting_factor_each_species.png"),
+       p_all,height = 15,width = 15)
 
+#------------------------------------------------
+#-->aggregating info of limiting factors for all species
+#-----------------------------------------------
+#logic: for each specie-->keep the pixes with lim_val_mean<0.6,
+#>=0.6 lim_val_mean set as 0-->set the kept pixel values to 1
+#add summary the 7 speices for each pixel-->the pixel value is higher,stress level is higher
+df_tidy_recal<-c()
+#------set the pixel values to 0 or 1
+for (i in 1:length(df_tidy)) {
+  df_temp<-df_tidy[[i]]
+  species_proc_name<-names(df_tidy)[i]
 
+  #
+  df.proc<-df_temp%>%
+    filter(!is.na(lim_val_mean))%>%
+    #recalculate the limiting values for each pixel
+    mutate(lim_val_recal=ifelse(lim_val_mean>=0.6,0,1))
+  df_tidy_recal[[i]]<-df.proc
+}
+names(df_tidy_recal)<-names(df_tidy)
+#--------adding values for different speceis------
+df_tidy_agg<-df_tidy_recal[[1]]%>%
+  select(x,y,lim_val_recal)%>%
+  mutate(V1=lim_val_recal)
+for (i in 2:length(df_tidy_recal)) {
+  raster_add<-df_tidy_recal[[i]]%>%select(x,y,lim_val_recal)
+  #test
+  ggplot() +
+    geom_tile(data=raster::as.data.frame(raster_add, xy = TRUE)%>%
+                filter(!is.na(lim_val_recal))%>%
+                mutate(lim_val_recal=factor(lim_val_recal,levels = paste0(0:1))),
+              aes(x=x, y=y, fill=lim_val_recal), alpha=0.8) +
+    # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
+    #              fill=NA, color="grey50", size=0.25) +
+    scale_fill_viridis_d()+
+    coord_equal() +
+    theme_map() +
+    ggtitle(names(df_tidy_recal)[i])+
+    theme(legend.position="right",
+          legend.key.width=unit(0.8, "cm"),
+          plot.title = element_text(hjust = 0.5),
+          panel.background = element_rect(fill = "white", colour = NA),
+          plot.background = element_rect(fill = "white", colour = NA),
+          plot.margin = unit(c(0,0,0,0), "cm"))
+  #
+  names(raster_add)<-c("x","y",paste0("V",i))
+  df_tidy_agg<-bind_rows(df_tidy_agg,raster_add)
+}
+#summary the values:
+df_tidy_agg$V_sum<-rowSums(df_tidy_agg[,paste0("V",1:7)],na.rm=T)
+df_tidy_agg<-df_tidy_agg%>%
+  mutate(lim_val_sum=V_sum)
+#---------
+#plotting
+#---------
+t_plot_agg<-raster::rasterFromXYZ(df_tidy_agg[,c("x","y","lim_val_sum")])
+#using ggplot2
+p_agg<-ggplot() +
+  geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
+              filter(!is.na(lim_val_sum))%>%
+              mutate(lim_val_sum=factor(lim_val_sum,levels = paste0(0:7))),
+            aes(x=x, y=y, fill=lim_val_sum), alpha=0.8) +
+  # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
+  #              fill=NA, color="grey50", size=0.25) +
+  scale_fill_viridis_d()+
+  coord_equal() +
+  theme_map() +
+  ggtitle("Env limiting vs non-limiting area")+
+  theme(legend.position="right",
+        legend.key.width=unit(0.8, "cm"),
+        plot.title = element_text(hjust = 0.5),
+        panel.background = element_rect(fill = "white", colour = NA),
+        plot.background = element_rect(fill = "white", colour = NA),
+        plot.margin = unit(c(0,0,0,0), "cm"))
