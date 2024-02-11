@@ -1,5 +1,5 @@
 #############################################
-#Tidy the data from 3-PG model(provided by Volo)
+#Tidy the npp from 3-PG model(provided by Volo)
 #############################################
 #NPP link:
 #limited Env:https://www.envidat.ch/#/metadata/environmental-constraints-on-tree-growth
@@ -7,14 +7,13 @@ library(dplyr)
 library(ggplot2)
 library(purrr)
 library(tidyverse)
+library(cowplot)
 #----------------------------
 #(0)load the data and test code
 #----------------------------
 #code refer to Volo
 data.path<-"D:/data/Upscale_project_data/From_3PG_model/"
 f_NPP_test <- raster::raster(paste0(data.path,'/npp_anomalies/piab_2003.tif'))
-
-f_lim_env <- raster::raster(paste0(data.path,'/lim_factors_average/Fagus sylvatica_1991_2018_f_vpd_5.tif'))
 
 #
 raster::plot(f_NPP_test)
@@ -27,13 +26,6 @@ raster::as.data.frame(f_NPP_test, xy = TRUE) %>%
 
   geom_histogram()
 
-#
-raster::as.data.frame(f_lim_env, xy = TRUE) %>%
-  dplyr::filter(!is.na(`Fagus_sylvatica_1991_2018_f_vpd_5`)) %>%
-
-  ggplot(aes(`Fagus_sylvatica_1991_2018_f_vpd_5`))+
-
-  geom_histogram()
 
 ##
 list.files(paste0(data.path,'npp_anomalies/'), full.names = TRUE)[2:5] %>%
@@ -53,92 +45,80 @@ list.files(paste0(data.path,'npp_anomalies/'), full.names = TRUE)[2:5] %>%
   head()
 
 ##################################
-#processing the results from the limited environmental drivers
+#processing the results from npp anomalies
 ##################################
-df.lim<-list.files(paste0(data.path,'lim_factors_average/'), full.names = TRUE)
+df.a_npp<-list.files(paste0(data.path,'npp_anomalies/'), full.names = TRUE)
 #only selecting the limiting factors in 1991-2018
-df.lim_1991_2018<-df.lim[grep("1991_2018",df.lim)]
+df.a_npp_1960_2018<-df.a_npp[grep(".tif",df.a_npp)]
 #species:
-species<-c("Abies alba","Acer pseudoplatanus","Fagus sylvatica","Larix decidua",
-          "Picea abies","Pinus sylvestris","Quercus robur")
-species_names<-c("Abies_alba","Acer_pseudoplatanus","Fagus_sylvatica","Larix_decidua",
-              "Picea_abies","Pinus_sylvestris","Quercus_robur")
+species<-c("fasy","piab")
+species_names<-c("Fagus_sylvatica","Picea_abies")
 ##for each speices
-df.lim_1991_2018_agg<-c()
+df.a_npp_1960_2018_agg<-c()
 for (i in 1:length(species)) {
   df.temp<-c()
-  df.temp<-df.lim_1991_2018[grep(species[i],df.lim_1991_2018)]
-  df.lim_1991_2018_agg[[i]]<-df.temp
+  df.temp<-df.a_npp_1960_2018[grep(species[i],df.a_npp_1960_2018)]
+  df.a_npp_1960_2018_agg[[i]]<-df.temp
   rm(df.temp)
 }
-names(df.lim_1991_2018_agg)<-species_names
+names(df.a_npp_1960_2018_agg)<-species_names
 ####
 #----------
-#-->identify the limited variables for each month(May-Sep) for each species
+#-->stack the data from 1960-2018 for each species
 #----------
-df_tidy<-list()
-for (i in 1:length(df.lim_1991_2018_agg)) {
-  #
-  species_proc_name<-names(df.lim_1991_2018_agg)[i]
-  temp.path<-data.frame("path"=df.lim_1991_2018_agg[[i]],
-  #refer to https://www.geeksforgeeks.org/extract-numbers-from-character-string-vector-in-r/
-  "month"=as.numeric(gsub(".*?([0-9]+).*", "\\1", substr(df.lim_1991_2018_agg[[i]],
-     str_length(df.lim_1991_2018_agg[[i]])-5,str_length(df.lim_1991_2018_agg[[i]])))))
+##calculate the Theil–Sen slope and test its significance
+library(trend) #calculate the Theil_sen slope
+cal_senslope<-function(df){
+  #df<-c(1,2,4,5,5,6,7,8,10,11)
 
-  #select the growing season(May-Sep, following Volo's definitation):
-  temp.path_sel<-temp.path %>%
-    filter(month>=5 & month<=9)
+  trend_stats<-trend::sens.slope(df)
+  #in trend r package, the significance of sens.slope has been
+  #defaullty test by Mann–Kendall tests-->namely mk.test below:
+  #mk.test(df1$npp_anomaly)
+  stats_out<-data.frame("slope"=trend_stats$estimates,
+                        "p.value"=trend_stats$p.value)
+  return(stats_out)
+}
+
+df_tidy<-list()
+##calculating the Theil-sen slope and conducting MK.test
+for (i in 1:length(df.a_npp_1960_2018_agg)) {
+  #
+  species_proc_name<-names(df.a_npp_1960_2018_agg)[i]
+  species_short<-ifelse(species_proc_name=="Fagus_sylvatica","fasy","piab")
+  temp.path<-data.frame("path"=df.a_npp_1960_2018_agg[[i]],
+  #refer to https://www.geeksforgeeks.org/extract-numbers-from-character-string-vector-in-r/
+  "year"=as.numeric(gsub(".*?([0-9]+).*", "\\1", substr(df.a_npp_1960_2018_agg[[i]],
+     str_length(df.a_npp_1960_2018_agg[[i]])-8,str_length(df.a_npp_1960_2018_agg[[i]])))))
+
   #
   df_species_temp<-c()
-  for (j in 5:9) {
-    df.exe<-temp.path %>%
-      filter(month==j)
-    df.proc<-df.exe[,1]%>%
-      raster::stack() %>%
-      # raster::plot()
-      raster::as.data.frame(., xy = TRUE)
-    #identify the dominant variables
-    df.proc_final<-df.proc%>%
-      # df.proc[!is.na(df.proc[,3]),]%>%
-      #https://stackoverflow.com/questions/63881552/how-to-just-keep-the-minimum-value-in-a-row-across-multiple-columns-and-make-all
-      # mutate(lim_val= purrr::pmap(across(starts_with(species_proc_name)), min))
-      rownames_to_column('id') %>%  # creates an ID number
-      pivot_longer(starts_with(species_proc_name),
-                                   names_to = "lim_longvar",values_to = "lim_val")%>%
-      group_by(id)%>%
-      slice(which.min(lim_val))%>%
-      mutate(specie_name=species_proc_name,
-             #select the limiting variables-->spearate the limiting factor by "_"
-             lim_var=unlist(str_split(substr(lim_longvar,str_length(lim_longvar)-5,str_length(lim_longvar)),"_",3))[2])
-    #put the data between May-Sep together:
-    df_species_temp<-bind_rows(df_species_temp,df.proc_final)
-    rm(df.proc_final)
-  }
-  ##merge the data in the growing season(May-Sep):
-  #each pixel have 5 points--5 months
-  #-->identify the limiting factors in growing season
-  tt1<-df_species_temp %>%
-    group_by(x,y,specie_name)%>%
-    count(lim_var)%>%
-    slice(which.max(n))%>%
-    mutate(lim_var_GS=lim_var,lim_var=NULL,
-           n=NULL)
-  tt2<-left_join(df_species_temp,tt1,by=c("x","y","specie_name"))
-  #identify the annually limiting factors and the limited values
-  t_final<-tt2%>%
-    filter(lim_var_GS==lim_var)%>%
-    group_by(x,y,specie_name)%>%
-    dplyr::summarise(lim_val_mean=mean(lim_val),
-                     lim_var_GS=unique(lim_var_GS))
-  df_tidy[[i]]<-t_final
+  #stack all the years' data
+  df.proc<-temp.path[,"path"]%>%
+    raster::stack()%>%
+    # raster::plot()
+    raster::as.data.frame(., xy = TRUE)
+  df.proc_final<-df.proc%>%
+    rownames_to_column('id') %>%  # creates an ID number
+    pivot_longer(starts_with(species_short),
+                 names_to = "species_year",values_to = "npp_anomaly")%>%
+    mutate(year=as.numeric(substr(species_year,6,9)))
+  #calculate the Theil_sen slope and MK test
+  df.out<-df.proc_final%>%
+    filter(!is.na(npp_anomaly))%>%
+    group_by(x,y)%>%
+    summarise(slope=cal_senslope(npp_anomaly)[,"slope"],
+              p.value=cal_senslope(npp_anomaly)[,"p.value"])
+ ##
+  df_tidy[[i]]<-df.out
 }
 names(df_tidy)<-species_names
 #save the data:
 save.path<-"./data/3PG/"
-# save(df_tidy,file = paste0(save.path,"species_GS_limiting_vars.RDA"))
+# save(df_tidy,file = paste0(save.path,"species_npp_anomaly_trend_and_sig.RDA"))
 
 ##making the plots###
-# load(paste0(save.path,"species_GS_limiting_vars.RDA"))
+load(paste0(save.path,"species_npp_anomaly_trend_and_sig.RDA"))
 library(cowplot)
 #----------
 #A. plotting the limiting factor for each species
@@ -278,14 +258,10 @@ for (i in 1:length(df_tidy)) {
 }
 names(df_tidy_recal)<-names(df_tidy)
 #--------adding values for different speceis------
-df_tidy_agg<-df_tidy_recal[[1]]%>%
-  select(x,y,lim_val_recal)%>%
-  mutate(V1=lim_val_recal)
-for (i in 2:length(df_tidy_recal)) {
-  raster_add<-df_tidy_recal[[i]]%>%select(x,y,lim_val_recal)
-  #test
-  ggplot() +
-    geom_tile(data=raster::as.data.frame(raster_add, xy = TRUE)%>%
+plot_map_fun<-function(df){
+  # df<-df_tidy_recal[[1]]
+  p_plot<-ggplot() +
+    geom_tile(data=raster::as.data.frame(df, xy = TRUE)%>%
                 filter(!is.na(lim_val_recal))%>%
                 mutate(lim_val_recal=factor(lim_val_recal,levels = paste0(0:1))),
               aes(x=x, y=y, fill=lim_val_recal), alpha=0.8) +
@@ -301,10 +277,29 @@ for (i in 2:length(df_tidy_recal)) {
           panel.background = element_rect(fill = "white", colour = NA),
           plot.background = element_rect(fill = "white", colour = NA),
           plot.margin = unit(c(0,0,0,0), "cm"))
+  return(p_plot)
+}
+
+####
+p_species_agg<-c()
+#
+df_tidy_agg<-df_tidy_recal[[1]]%>%
+  select(x,y,lim_val_recal)%>%
+  mutate(V1=lim_val_recal)
+p_species_agg[[1]]<-plot_map_fun(df_tidy_recal[[1]])
+for (i in 2:length(df_tidy_recal)) {
+  p_species_agg[[i]]<-plot_map_fun(df_tidy_recal[[i]])
+  raster_add<-df_tidy_recal[[i]]%>%select(x,y,lim_val_recal)
   #
   names(raster_add)<-c("x","y",paste0("V",i))
-  df_tidy_agg<-bind_rows(df_tidy_agg,raster_add)
+  df_tidy_agg<-full_join(df_tidy_agg,raster_add,id=c("x","y"))
 }
+#show the filter map(value<0.6) for each species
+p_species<-plot_grid(p_species_agg[[1]],p_species_agg[[2]],p_species_agg[[3]],
+          p_species_agg[[4]],p_species_agg[[5]],p_species_agg[[6]],
+          p_species_agg[[7]],nrow = 3
+          )
+
 #summary the values:
 df_tidy_agg$V_sum<-rowSums(df_tidy_agg[,paste0("V",1:7)],na.rm=T)
 df_tidy_agg<-df_tidy_agg%>%
@@ -314,14 +309,14 @@ df_tidy_agg<-df_tidy_agg%>%
 #---------
 t_plot_agg<-raster::rasterFromXYZ(df_tidy_agg[,c("x","y","lim_val_sum")])
 #using ggplot2
-p_agg<-ggplot() +
+p_agg1<-ggplot() +
   geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
               filter(!is.na(lim_val_sum))%>%
               mutate(lim_val_sum=factor(lim_val_sum,levels = paste0(0:7))),
             aes(x=x, y=y, fill=lim_val_sum), alpha=0.8) +
   # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
   #              fill=NA, color="grey50", size=0.25) +
-  scale_fill_viridis_d()+
+  scale_fill_viridis_d(direction = -1,option = "D")+
   coord_equal() +
   theme_map() +
   ggtitle("Env limiting vs non-limiting area")+
@@ -331,3 +326,48 @@ p_agg<-ggplot() +
         panel.background = element_rect(fill = "white", colour = NA),
         plot.background = element_rect(fill = "white", colour = NA),
         plot.margin = unit(c(0,0,0,0), "cm"))
+
+p_agg2<-ggplot() +
+  geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
+              filter(!is.na(lim_val_sum))%>%
+              mutate(lim_val_sum=factor(lim_val_sum,levels = paste0(0:7)))%>%
+              mutate(lim_val_flag=ifelse(as.numeric(lim_val_sum)<=2,"<=2",">2")),
+            aes(x=x, y=y, fill=lim_val_flag), alpha=0.8) +
+  # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
+  #              fill=NA, color="grey50", size=0.25) +
+  scale_fill_viridis_d(direction = -1,option = "D")+
+  coord_equal() +
+  theme_map() +
+  ggtitle("Env limiting vs non-limiting area")+
+  theme(legend.position="right",
+        legend.key.width=unit(0.8, "cm"),
+        plot.title = element_text(hjust = 0.5),
+        panel.background = element_rect(fill = "white", colour = NA),
+        plot.background = element_rect(fill = "white", colour = NA),
+        plot.margin = unit(c(0,0,0,0), "cm"))
+
+p_agg3<-ggplot() +
+  geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
+              filter(!is.na(lim_val_sum))%>%
+              mutate(lim_val_sum=factor(lim_val_sum,levels = paste0(0:7)))%>%
+              mutate(lim_val_flag=ifelse(as.numeric(lim_val_sum)<=3,"<=3",">3")),
+            aes(x=x, y=y, fill=lim_val_flag), alpha=0.8) +
+  # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
+  #              fill=NA, color="grey50", size=0.25) +
+  scale_fill_viridis_d(direction = -1,option = "D")+
+  coord_equal() +
+  theme_map() +
+  ggtitle("Env limiting vs non-limiting area")+
+  theme(legend.position="right",
+        legend.key.width=unit(0.8, "cm"),
+        plot.title = element_text(hjust = 0.5),
+        panel.background = element_rect(fill = "white", colour = NA),
+        plot.background = element_rect(fill = "white", colour = NA),
+        plot.margin = unit(c(0,0,0,0), "cm"))
+#
+plot_agg<-plot_grid(p_agg1,p_agg2,p_agg3,nrow=3)
+#
+save.path<-"./manuscript/3PG_results/"
+ggsave(file=paste0(save.path,"limiting_factor_agg_species.png"),
+       plot_agg,height = 15,width = 8)
+
