@@ -80,294 +80,159 @@ cal_senslope<-function(df){
   return(stats_out)
 }
 
-df_tidy<-list()
-##calculating the Theil-sen slope and conducting MK.test
-for (i in 1:length(df.a_npp_1960_2018_agg)) {
-  #
-  species_proc_name<-names(df.a_npp_1960_2018_agg)[i]
-  species_short<-ifelse(species_proc_name=="Fagus_sylvatica","fasy","piab")
-  temp.path<-data.frame("path"=df.a_npp_1960_2018_agg[[i]],
-  #refer to https://www.geeksforgeeks.org/extract-numbers-from-character-string-vector-in-r/
-  "year"=as.numeric(gsub(".*?([0-9]+).*", "\\1", substr(df.a_npp_1960_2018_agg[[i]],
-     str_length(df.a_npp_1960_2018_agg[[i]])-8,str_length(df.a_npp_1960_2018_agg[[i]])))))
+##calculating the Theil-sen slope and conducting MK.test for different periods
+cal_sen_periods<-function(df,period){
+  # df<-df.a_npp_1960_2018_agg
+  # period<-c(1960,2018)
 
+  df_tidy_period<-list()
+  for (i in 1:length(df.a_npp_1960_2018_agg)) {
+    #
+    species_proc_name<-names(df.a_npp_1960_2018_agg)[i]
+    species_short<-ifelse(species_proc_name=="Fagus_sylvatica","fasy","piab")
+    temp.path<-data.frame("path"=df.a_npp_1960_2018_agg[[i]],
+                          #refer to https://www.geeksforgeeks.org/extract-numbers-from-character-string-vector-in-r/
+                          "year"=as.numeric(gsub(".*?([0-9]+).*", "\\1", substr(df.a_npp_1960_2018_agg[[i]],
+                                                                                str_length(df.a_npp_1960_2018_agg[[i]])-8,str_length(df.a_npp_1960_2018_agg[[i]])))))
+
+    #
+    df_species_temp<-c()
+    #stack all the years' data
+    df.proc<-temp.path[,"path"]%>%
+      raster::stack()%>%
+      # raster::plot()
+      raster::as.data.frame(., xy = TRUE)
+    df.proc_final<-df.proc%>%
+      rownames_to_column('id') %>%  # creates an ID number
+      pivot_longer(starts_with(species_short),
+                   names_to = "species_year",values_to = "npp_anomaly")%>%
+      mutate(year=as.numeric(substr(species_year,6,9)))%>%
+      filter(year>=period[1] & year<=period[2])
+    #calculate the Theil_sen slope and MK test
+    df.out<-df.proc_final%>%
+      filter(!is.na(npp_anomaly))%>%
+      group_by(x,y)%>%
+      summarise(slope=cal_senslope(npp_anomaly)[,"slope"],
+                p.value=cal_senslope(npp_anomaly)[,"p.value"])
+    ##
+    df_tidy_period[[i]]<-df.out
+  }
+  names(df_tidy_period)<-species_names
   #
-  df_species_temp<-c()
-  #stack all the years' data
-  df.proc<-temp.path[,"path"]%>%
-    raster::stack()%>%
-    # raster::plot()
-    raster::as.data.frame(., xy = TRUE)
-  df.proc_final<-df.proc%>%
-    rownames_to_column('id') %>%  # creates an ID number
-    pivot_longer(starts_with(species_short),
-                 names_to = "species_year",values_to = "npp_anomaly")%>%
-    mutate(year=as.numeric(substr(species_year,6,9)))
-  #calculate the Theil_sen slope and MK test
-  df.out<-df.proc_final%>%
-    filter(!is.na(npp_anomaly))%>%
-    group_by(x,y)%>%
-    summarise(slope=cal_senslope(npp_anomaly)[,"slope"],
-              p.value=cal_senslope(npp_anomaly)[,"p.value"])
- ##
-  df_tidy[[i]]<-df.out
+  return(df_tidy_period)
 }
-names(df_tidy)<-species_names
+##get the sen's slope in differnt periods
+df_tidy_1960_2018<-cal_sen_periods(df.a_npp_1960_2018_agg,c(1960,2018))
+df_tidy_1960_1989<-cal_sen_periods(df.a_npp_1960_2018_agg,c(1960,1989))
+df_tidy_1990_2018<-cal_sen_periods(df.a_npp_1960_2018_agg,c(1990,2018))
+#
+df_all<-list(df_tidy_1990_2018,df_tidy_1960_1989,df_tidy_1990_2018)
+names(df_all)<-c("1990-2018","1960-1989","1990-2018")
+
 #save the data:
 save.path<-"./data/3PG/"
-# save(df_tidy,file = paste0(save.path,"species_npp_anomaly_trend_and_sig.RDA"))
+# save(df_all,file = paste0(save.path,"species_npp_anomaly_trend_and_sig.RDA"))
 
 ##making the plots###
-load(paste0(save.path,"species_npp_anomaly_trend_and_sig.RDA"))
+#load(paste0(save.path,"species_npp_anomaly_trend_and_sig.RDA"))
 library(cowplot)
-#----------
-#A. plotting the limiting factor for each species
-#----------
-simple_plot_map<-function(df,species_proc_name){
-  # df<-df_tidy[[1]]
-  # species_proc_name<-names(df_tidy)[1]
+#function:
+plot_map<-function(df,species_proc_name,period){
+  # df<-df_tidy_1960_2018[[2]]
+  # species_proc_name<-names(df_tidy_1960_2018)[2]
+  # period<-c(1960,2018)
   #
   df<-df %>%
-    mutate(lim_GS_categroy=case_when(lim_var_GS=="tmp"~1,
-                                     lim_var_GS=="vpd"~2,
-                                     lim_var_GS=="sw"~3))%>%
-    mutate(lim_GS_categroy=factor(lim_GS_categroy,levels=c(1,2,3)))
+  #if p.value>=0.05, the trend of varation of npp anomaly is not significant
+  #if p.value<0.05, ...is signifcant
+  mutate(sig=ifelse(p.value>=0.05,0,1))%>%
+    mutate(sig=factor(sig,levels=c(0,1)))
   #
-  t_plot1<-raster::rasterFromXYZ(df[,c("x","y","lim_val_mean")])
-  t_plot2<-raster::rasterFromXYZ(df[,c("x","y","lim_GS_categroy")])
-  # t_plot<-raster::rasterFromXYZ(df[,c("x","y","lim_val_mean","lim_GS_categroy")])
+  t_data1<-raster::rasterFromXYZ(df[,c("x","y","slope")])
+  t_data2<-raster::rasterFromXYZ(df[,c("x","y","sig")])
 
   # par(mfrow=c(2,1))
   # raster::plot(t_plot1,main=species_proc_name)
   # #using the ggplot2
   #-->refer:https://stackoverflow.com/questions/33227182/how-to-set-use-ggplot2-to-map-a-raster
-  p_plot1<-ggplot() +
-    geom_tile(data=raster::as.data.frame(t_plot1, xy = TRUE),
-              aes(x=x, y=y, fill=lim_val_mean), alpha=0.8) +
+  p_plot<-ggplot() +
+    geom_point(data=raster::as.data.frame(t_data2, xy = TRUE)%>%
+                 filter(!is.na(sig))%>%
+                 mutate(sig_flag=ifelse(sig==0,".","x"))%>%
+                 filter(sig_flag=="x"),
+               aes(x=x,y=y),shape=20,col="black",size=0.6)+
+    geom_tile(data=raster::as.data.frame(t_data1, xy = TRUE)%>%
+                filter(!is.na(slope))%>%
+                mutate(slope_flag=case_when(slope< -0.25 ~ "< -0.25",
+                                            slope>= -0.25 & slope <=0 ~"-0.25 - 0",
+                                            slope>0 & slope <=0.25~"0-0.25",
+                                            slope>0.25 & slope <=0.5~"0.25-0.5",
+                                            slope>0.5~">0.5"))%>%
+                mutate(slope_flag=factor(slope_flag,
+                                         levels = c("< -0.25","-0.25 - 0","0-0.25","0.25-0.5",">0.5"))),
+              aes(x=x, y=y, fill=slope_flag), alpha=0.6) +
     # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
     #              fill=NA, color="grey50", size=0.25) +
-    scale_fill_viridis_c(begin = 0,end = 1) +
+    # scale_fill_viridis_d(direction = 1,option = "C") +
     coord_equal() +
     theme_map() +
-    ggtitle(species_proc_name)+
+    ggtitle(paste0(species_proc_name,paste0(":",period[1],"-",period[2])))+
     theme(legend.position="right",
           legend.key.width=unit(0.8, "cm"),
           plot.title = element_text(hjust = 0.5),
           panel.background = element_rect(fill = "white", colour = NA),
           plot.background = element_rect(fill = "white", colour = NA),
           plot.margin = unit(c(0,0,0,0), "cm")
-          )
-
-  n=length(unique(df$lim_GS_categroy))
-  # par(fig=c(0.55,1,0,1),new=T)
+    )
   #
-  df %>%
-    group_by(lim_var_GS)%>%
-    count()
-
-  if(n==2){
-    # raster::plot(t_plot2,col=c("orange","green3"),
-    #              main=species_proc_name,legend=FALSE)
-    # legend("topright", legend = c("tmp", "vpd"),
-    #        fill = c("orange", "green3"))
-    # #using ggplot2
-    p_plot2<-ggplot() +
-      geom_tile(data=raster::as.data.frame(t_plot2, xy = TRUE)%>%
-                  filter(!is.na(lim_GS_categroy))%>%
-                  mutate(lim_GS_var=factor(lim_GS_categroy,levels = c("1","2","3"))),
-                aes(x=x, y=y, fill=lim_GS_var), alpha=0.8) +
-      # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
-      #              fill=NA, color="grey50", size=0.25) +
-      scale_fill_manual(values = c("1"="orange","2"="green3","3"="skyblue"),
-                        labels=c("tmp","vpd","sw")) +
-      coord_equal() +
-      theme_map() +
-      ggtitle(species_proc_name)+
-      theme(legend.position="right",
-            legend.key.width=unit(0.8, "cm"),
-            plot.title = element_text(hjust = 0.5),
-            panel.background = element_rect(fill = "white", colour = NA),
-            plot.background = element_rect(fill = "white", colour = NA),
-            plot.margin = unit(c(0,0,0,0), "cm")
-      )
-  }
-  if(n==3){
-    # raster::plot(t_plot2,col=c("orange","green3","skyblue"),
-    #              main=species_proc_name,legend=FALSE)
-    # legend("topright", legend = c("tmp", "vpd","sw"),
-    #        fill = c("orange", "green3","skyblue"))
-    #using ggplot2
-    p_plot2<-ggplot() +
-      geom_tile(data=raster::as.data.frame(t_plot2, xy = TRUE)%>%
-                  filter(!is.na(lim_GS_categroy))%>%
-                  mutate(lim_GS_var=factor(lim_GS_categroy,levels = c("1","2","3"))),
-                aes(x=x, y=y, fill=lim_GS_var), alpha=0.8) +
-      # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
-      #              fill=NA, color="grey50", size=0.25) +
-      scale_fill_manual(values = c("1"="orange","2"="green3","3"="skyblue"),
-                        labels=c("tmp","vpd","sw")) +
-      coord_equal() +
-      theme_map() +
-      ggtitle(species_proc_name)+
-      theme(legend.position="right",
-            legend.key.width=unit(0.8, "cm"),
-            plot.title = element_text(hjust = 0.5),
-            panel.background = element_rect(fill = "white", colour = NA),
-            plot.background = element_rect(fill = "white", colour = NA),
-            plot.margin = unit(c(0,0,0,0), "cm")
-      )
-
-  }
-p_merge<-plot_grid(p_plot1,p_plot2,nrow=2)
-#
-return(p_merge)
-}
-##plotting the results:
-plot_all<-c()
-for (i in 1:length(df_tidy)) {
-  plot_merge<-simple_plot_map(df_tidy[[i]],names(df_tidy)[i])
-  plot_all[[i]]<-plot_merge
-  rm(plot_merge)
-}
-##merge all the plots:
-save.path<-"./manuscript/3PG_results/"
-p_all<-plot_grid(plot_all[[1]],plot_all[[2]],plot_all[[3]],plot_all[[4]],
-          plot_all[[5]],plot_all[[6]],plot_all[[7]],
-          align = "hv")
-ggsave(file=paste0(save.path,"limiting_factor_each_species.png"),
-       p_all,height = 15,width = 15)
-
-#------------------------------------------------
-#-->aggregating info of limiting factors for all species
-#-----------------------------------------------
-#logic: for each specie-->keep the pixes with lim_val_mean<0.6,
-#>=0.6 lim_val_mean set as 0-->set the kept pixel values to 1
-#add summary the 7 speices for each pixel-->the pixel value is higher,stress level is higher
-df_tidy_recal<-c()
-#------set the pixel values to 0 or 1
-for (i in 1:length(df_tidy)) {
-  df_temp<-df_tidy[[i]]
-  species_proc_name<-names(df_tidy)[i]
-
-  #
-  df.proc<-df_temp%>%
-    filter(!is.na(lim_val_mean))%>%
-    #recalculate the limiting values for each pixel
-    mutate(lim_val_recal=ifelse(lim_val_mean>=0.6,0,1))
-  df_tidy_recal[[i]]<-df.proc
-}
-names(df_tidy_recal)<-names(df_tidy)
-#--------adding values for different speceis------
-plot_map_fun<-function(df){
-  # df<-df_tidy_recal[[1]]
-  p_plot<-ggplot() +
-    geom_tile(data=raster::as.data.frame(df, xy = TRUE)%>%
-                filter(!is.na(lim_val_recal))%>%
-                mutate(lim_val_recal=factor(lim_val_recal,levels = paste0(0:1))),
-              aes(x=x, y=y, fill=lim_val_recal), alpha=0.8) +
-    # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
-    #              fill=NA, color="grey50", size=0.25) +
-    scale_fill_viridis_d()+
-    coord_equal() +
-    theme_map() +
-    ggtitle(names(df_tidy_recal)[i])+
-    theme(legend.position="right",
-          legend.key.width=unit(0.8, "cm"),
-          plot.title = element_text(hjust = 0.5),
-          panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "white", colour = NA),
-          plot.margin = unit(c(0,0,0,0), "cm"))
   return(p_plot)
 }
 
-####
-p_species_agg<-c()
-#
-df_tidy_agg<-df_tidy_recal[[1]]%>%
-  select(x,y,lim_val_recal)%>%
-  mutate(V1=lim_val_recal)
-p_species_agg[[1]]<-plot_map_fun(df_tidy_recal[[1]])
-for (i in 2:length(df_tidy_recal)) {
-  p_species_agg[[i]]<-plot_map_fun(df_tidy_recal[[i]])
-  raster_add<-df_tidy_recal[[i]]%>%select(x,y,lim_val_recal)
-  #
-  names(raster_add)<-c("x","y",paste0("V",i))
-  df_tidy_agg<-full_join(df_tidy_agg,raster_add,id=c("x","y"))
+#----------
+#A. plotting the trend of npp and its significance for each species(1960-2018)
+#----------
+##plotting the results:
+plot_all_1960_2018<-c()
+for (i in 1:length(df_tidy_1960_2018)) {
+  plot_temp<-plot_map(df_tidy_1960_2018[[i]],names(df_tidy_1960_2018)[i],c(1960,2018))
+  plot_all_1960_2018[[i]]<-plot_temp
+  rm(plot_temp)
 }
-#show the filter map(value<0.6) for each species
-p_species<-plot_grid(p_species_agg[[1]],p_species_agg[[2]],p_species_agg[[3]],
-          p_species_agg[[4]],p_species_agg[[5]],p_species_agg[[6]],
-          p_species_agg[[7]],nrow = 3
-          )
-
-#summary the values:
-df_tidy_agg$V_sum<-rowSums(df_tidy_agg[,paste0("V",1:7)],na.rm=T)
-df_tidy_agg<-df_tidy_agg%>%
-  mutate(lim_val_sum=V_sum)
-#---------
-#plotting
-#---------
-t_plot_agg<-raster::rasterFromXYZ(df_tidy_agg[,c("x","y","lim_val_sum")])
-#using ggplot2
-p_agg1<-ggplot() +
-  geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
-              filter(!is.na(lim_val_sum))%>%
-              mutate(lim_val_sum=factor(lim_val_sum,levels = paste0(0:7))),
-            aes(x=x, y=y, fill=lim_val_sum), alpha=0.8) +
-  # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
-  #              fill=NA, color="grey50", size=0.25) +
-  scale_fill_viridis_d(direction = -1,option = "D")+
-  coord_equal() +
-  theme_map() +
-  ggtitle("Env limiting vs non-limiting area")+
-  theme(legend.position="right",
-        legend.key.width=unit(0.8, "cm"),
-        plot.title = element_text(hjust = 0.5),
-        panel.background = element_rect(fill = "white", colour = NA),
-        plot.background = element_rect(fill = "white", colour = NA),
-        plot.margin = unit(c(0,0,0,0), "cm"))
-
-p_agg2<-ggplot() +
-  geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
-              filter(!is.na(lim_val_sum))%>%
-              mutate(lim_val_sum=factor(lim_val_sum,levels = paste0(0:7)))%>%
-              mutate(lim_val_flag=ifelse(as.numeric(lim_val_sum)<=2,"<=2",">2")),
-            aes(x=x, y=y, fill=lim_val_flag), alpha=0.8) +
-  # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
-  #              fill=NA, color="grey50", size=0.25) +
-  scale_fill_viridis_d(direction = -1,option = "D")+
-  coord_equal() +
-  theme_map() +
-  ggtitle("Env limiting vs non-limiting area")+
-  theme(legend.position="right",
-        legend.key.width=unit(0.8, "cm"),
-        plot.title = element_text(hjust = 0.5),
-        panel.background = element_rect(fill = "white", colour = NA),
-        plot.background = element_rect(fill = "white", colour = NA),
-        plot.margin = unit(c(0,0,0,0), "cm"))
-
-p_agg3<-ggplot() +
-  geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
-              filter(!is.na(lim_val_sum))%>%
-              mutate(lim_val_sum=factor(lim_val_sum,levels = paste0(0:7)))%>%
-              mutate(lim_val_flag=ifelse(as.numeric(lim_val_sum)<=3,"<=3",">3")),
-            aes(x=x, y=y, fill=lim_val_flag), alpha=0.8) +
-  # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
-  #              fill=NA, color="grey50", size=0.25) +
-  scale_fill_viridis_d(direction = -1,option = "D")+
-  coord_equal() +
-  theme_map() +
-  ggtitle("Env limiting vs non-limiting area")+
-  theme(legend.position="right",
-        legend.key.width=unit(0.8, "cm"),
-        plot.title = element_text(hjust = 0.5),
-        panel.background = element_rect(fill = "white", colour = NA),
-        plot.background = element_rect(fill = "white", colour = NA),
-        plot.margin = unit(c(0,0,0,0), "cm"))
-#
-plot_agg<-plot_grid(p_agg1,p_agg2,p_agg3,nrow=3)
-#
+##merge all the plots:
 save.path<-"./manuscript/3PG_results/"
-ggsave(file=paste0(save.path,"limiting_factor_agg_species.png"),
-       plot_agg,height = 15,width = 8)
+p_all1<-plot_grid(plot_all_1960_2018[[1]],plot_all_1960_2018[[2]],
+                  align = "hv")
 
+#----------
+#B. plotting the trend of npp and its significance for each species(1960-1990)
+#----------
+plot_all_1960_1989<-c()
+for (i in 1:length(df_tidy_1960_1989)) {
+  plot_temp<-plot_map(df_tidy_1960_1989[[i]],names(df_tidy_1960_1989)[i],c(1960,1989))
+  plot_all_1960_1989[[i]]<-plot_temp
+  rm(plot_temp)
+}
+##merge all the plots:
+save.path<-"./manuscript/3PG_results/"
+p_all2<-plot_grid(plot_all_1960_1989[[1]],plot_all_1960_1989[[2]],
+                  align = "hv")
+
+#----------
+#C. plotting the trend of npp and its significance for each species(1990-2018)
+#----------
+plot_all_1990_2018<-c()
+for (i in 1:length(df_tidy_1990_2018)) {
+  plot_temp<-plot_map(df_tidy_1990_2018[[i]],names(df_tidy_1990_2018)[i],c(1990,2018))
+  plot_all_1990_2018[[i]]<-plot_temp
+  rm(plot_temp)
+}
+##merge all the plots:
+save.path<-"./manuscript/3PG_results/"
+p_all3<-plot_grid(plot_all_1990_2018[[1]],plot_all_1990_2018[[2]],
+                  align = "hv")
+
+##merging the plots
+plot_agg<-plot_grid(p_all1,p_all2,p_all3,nrow=3)
+##save the plots
+ggsave(file=paste0(save.path,"npp_anomaly_trend_each_species.png"),
+       plot_agg,height = 15,width = 15)
