@@ -64,7 +64,7 @@ for (i in 1:length(species)) {
 names(df.a_npp_1960_2018_agg)<-species_names
 ####
 #----------
-#-->stack the data from 1960-2018 for each species
+#-->identify the regions that has negative npp trend for each species
 #----------
 ##calculate the Theil–Sen slope and test its significance
 library(trend) #calculate the Theil_sen slope
@@ -126,15 +126,15 @@ df_tidy_1960_2018<-cal_sen_periods(df.a_npp_1960_2018_agg,c(1960,2018))
 df_tidy_1960_1989<-cal_sen_periods(df.a_npp_1960_2018_agg,c(1960,1989))
 df_tidy_1990_2018<-cal_sen_periods(df.a_npp_1960_2018_agg,c(1990,2018))
 #
-df_all<-list(df_tidy_1990_2018,df_tidy_1960_1989,df_tidy_1990_2018)
-names(df_all)<-c("1990-2018","1960-1989","1990-2018")
+df_all<-list(df_tidy_1960_2018,df_tidy_1960_1989,df_tidy_1990_2018)
+names(df_all)<-c("1960-2018","1960-1989","1990-2018")
 
 #save the data:
 save.path<-"./data/3PG/"
 # save(df_all,file = paste0(save.path,"species_npp_anomaly_trend_and_sig.RDA"))
 
 ##making the plots###
-#load(paste0(save.path,"species_npp_anomaly_trend_and_sig.RDA"))
+# load(paste0(save.path,"species_npp_anomaly_trend_and_sig.RDA"))
 library(cowplot)
 #function:
 plot_map<-function(df,species_proc_name,period){
@@ -193,8 +193,8 @@ plot_map<-function(df,species_proc_name,period){
 #----------
 ##plotting the results:
 plot_all_1960_2018<-c()
-for (i in 1:length(df_tidy_1960_2018)) {
-  plot_temp<-plot_map(df_tidy_1960_2018[[i]],names(df_tidy_1960_2018)[i],c(1960,2018))
+for (i in 1:length(df_all$`1960-2018`)) {
+  plot_temp<-plot_map(df_all$`1960-2018`[[i]],names(df_all$`1960-2018`)[i],c(1960,2018))
   plot_all_1960_2018[[i]]<-plot_temp
   rm(plot_temp)
 }
@@ -207,8 +207,8 @@ p_all1<-plot_grid(plot_all_1960_2018[[1]],plot_all_1960_2018[[2]],
 #B. plotting the trend of npp and its significance for each species(1960-1990)
 #----------
 plot_all_1960_1989<-c()
-for (i in 1:length(df_tidy_1960_1989)) {
-  plot_temp<-plot_map(df_tidy_1960_1989[[i]],names(df_tidy_1960_1989)[i],c(1960,1989))
+for (i in 1:length(df_all$`1960-1989`)) {
+  plot_temp<-plot_map(df_all$`1960-1989`[[i]],names(df_all$`1960-1989`)[i],c(1960,1989))
   plot_all_1960_1989[[i]]<-plot_temp
   rm(plot_temp)
 }
@@ -221,8 +221,8 @@ p_all2<-plot_grid(plot_all_1960_1989[[1]],plot_all_1960_1989[[2]],
 #C. plotting the trend of npp and its significance for each species(1990-2018)
 #----------
 plot_all_1990_2018<-c()
-for (i in 1:length(df_tidy_1990_2018)) {
-  plot_temp<-plot_map(df_tidy_1990_2018[[i]],names(df_tidy_1990_2018)[i],c(1990,2018))
+for (i in 1:length(df_all$`1990-2018`)) {
+  plot_temp<-plot_map(df_all$`1990-2018`[[i]],names(df_all$`1990-2018`)[i],c(1990,2018))
   plot_all_1990_2018[[i]]<-plot_temp
   rm(plot_temp)
 }
@@ -236,3 +236,123 @@ plot_agg<-plot_grid(p_all1,p_all2,p_all3,nrow=3)
 ##save the plots
 ggsave(file=paste0(save.path,"npp_anomaly_trend_each_species.png"),
        plot_agg,height = 15,width = 15)
+
+#------------------------------------------------
+#-->aggregating negative trend info for both fasy and piab
+#-----------------------------------------------
+#logic: recalculate two variables for each specie:slope_recal,p.value_recal
+#if original slope >0,set slope_recal=1, otherwise set to 0
+#if original p.value <0.05, p.value_recal=1,otherwise set to 0
+# then summary the values for two species
+
+##----------------------
+##only analyze the data between 1990-2018 at this stage
+##----------------------
+df_tidy<-df_all$`1990-2018`
+df_tidy_recal<-c()
+#------set the pixel values to 0 or 1
+for (i in 1:length(df_tidy)) {
+  df_temp<-df_tidy[[i]]
+  species_proc_name<-names(df_tidy)[i]
+
+  #
+  df.proc<-df_temp%>%
+    #recalculate the limiting values for each pixel
+    mutate(slope_recal=ifelse(slope<=0,0,1),
+           p.value_recal=ifelse(p.value>=0.05,0,1)
+           )
+  df_tidy_recal[[i]]<-df.proc
+}
+names(df_tidy_recal)<-names(df_tidy)
+
+##----aggregate the information from different species
+df_tidy_agg<-df_tidy_recal[[1]]%>%
+  select(x,y,slope_recal,p.value_recal)%>%
+  mutate(S1=slope_recal,P1=p.value_recal)
+for (i in 2:length(df_tidy_recal)) {
+  raster_add<-df_tidy_recal[[i]]%>%select(x,y,slope_recal,p.value_recal)
+  #
+  names(raster_add)<-c("x","y",paste0("S",i),paste0("P",i))
+  df_tidy_agg<-full_join(df_tidy_agg,raster_add,id=c("x","y"))
+}
+
+#summary the values:
+df_tidy_agg$slope_sum<-rowSums(df_tidy_agg[,paste0("S",1:2)]) #keep the NA values
+df_tidy_agg$p.value_sum<-rowSums(df_tidy_agg[,paste0("P",1:2)]) #keep the NA values
+
+#--------------------
+#plotting
+#--------------------
+t_plot_agg<-raster::rasterFromXYZ(df_tidy_agg[,c("x","y","slope_sum")])
+t_data<-raster::rasterFromXYZ(df_tidy_agg[,c("x","y","p.value_sum")])
+#using ggplot2
+#one species slope significant
+p_agg1<-ggplot() +
+  geom_point(data=raster::as.data.frame(t_data, xy = TRUE)%>%
+               filter(!is.na(p.value_sum))%>%
+               mutate(sig=p.value_sum)%>%
+               mutate(sig=factor(sig,levels=paste0(0:2)))%>%
+               filter(sig==1),
+             aes(x=x,y=y),shape=20,col="red",size=0.6)+
+  geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
+              filter(!is.na(slope_sum))%>%
+              mutate(slope_flag=case_when(
+                slope_sum==0 ~ "2 spe. negative",
+                slope_sum==1 ~ "1 spe. negative",
+                slope_sum==2 ~ "2 spe. postive"
+                ))%>%
+              mutate(slope_flag=factor(slope_flag,levels = c("2 spe. negative",
+                       "1 spe. negative",
+                       "2 spe. positive"
+                       ))),
+            aes(x=x, y=y, fill=slope_flag), alpha=0.8) +
+  # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
+  #              fill=NA, color="grey50", size=0.25) +
+  scale_fill_viridis_d(direction = -1,option = "D")+
+  coord_equal() +
+  theme_map() +
+  ggtitle("NPP increasing vs decreasing area (red: 1 spe. sig)")+
+  theme(legend.position="right",
+        legend.key.width=unit(0.8, "cm"),
+        plot.title = element_text(hjust = 0.5),
+        panel.background = element_rect(fill = "white", colour = NA),
+        plot.background = element_rect(fill = "white", colour = NA),
+        plot.margin = unit(c(0,0,0,0), "cm"))
+p_agg2<-ggplot() +
+  geom_point(data=raster::as.data.frame(t_data, xy = TRUE)%>%
+               filter(!is.na(p.value_sum))%>%
+               mutate(sig=p.value_sum)%>%
+               mutate(sig=factor(sig,levels=paste0(0:2)))%>%
+               filter(sig==2),
+             aes(x=x,y=y),shape=20,col="red",size=0.6)+
+  geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
+              filter(!is.na(slope_sum))%>%
+              mutate(slope_flag=case_when(
+                slope_sum==0 ~ "2 spe. negative",
+                slope_sum==1 ~ "1 spe. negative",
+                slope_sum==2 ~ "2 spe. postive"
+              ))%>%
+              mutate(slope_flag=factor(slope_flag,levels = c("2 spe. negative",
+                                                             "1 spe. negative",
+                                                             "2 spe. positive"
+              ))),
+            aes(x=x, y=y, fill=slope_flag), alpha=0.8) +
+  # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
+  #              fill=NA, color="grey50", size=0.25) +
+  scale_fill_viridis_d(direction = -1,option = "D")+
+  coord_equal() +
+  theme_map() +
+  ggtitle("NPP increasing vs decreasing area (red: 2 spe. sig)")+
+  theme(legend.position="right",
+        legend.key.width=unit(0.8, "cm"),
+        plot.title = element_text(hjust = 0.5),
+        panel.background = element_rect(fill = "white", colour = NA),
+        plot.background = element_rect(fill = "white", colour = NA),
+        plot.margin = unit(c(0,0,0,0), "cm"))
+#
+plot_agg<-plot_grid(p_agg1,p_agg2,nrow=2)
+#
+save.path<-"./manuscript/3PG_results/"
+ggsave(file=paste0(save.path,"decreasing_anomaly_npp_agg_species.png"),
+       plot_agg,height = 10,width = 8)
+
