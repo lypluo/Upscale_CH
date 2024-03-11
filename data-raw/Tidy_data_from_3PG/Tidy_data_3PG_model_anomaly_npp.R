@@ -1,8 +1,6 @@
 #############################################
 #Tidy the npp from 3-PG model(provided by Volo)
 #############################################
-#NPP link:
-#limited Env:https://www.envidat.ch/#/metadata/environmental-constraints-on-tree-growth
 library(dplyr)
 library(ggplot2)
 library(purrr)
@@ -11,6 +9,8 @@ library(cowplot)
 #----------------------------
 #(0)load the data and test code
 #----------------------------
+##NPP data weblink:
+#https://www.envidat.ch/#/metadata/net-primary-productivity-npp-anomalies-simulated-by-3-pg-model-for-switzerland
 #code refer to Volo
 data.path<-"D:/data/Upscale_project_data/From_3PG_model/"
 f_NPP_test <- raster::raster(paste0(data.path,'/npp_anomalies/piab_2003.tif'))
@@ -288,12 +288,12 @@ t_data<-raster::rasterFromXYZ(df_tidy_agg[,c("x","y","p.value_sum")])
 #using ggplot2
 #one species slope significant
 p_agg1<-ggplot() +
-  geom_point(data=raster::as.data.frame(t_data, xy = TRUE)%>%
-               filter(!is.na(p.value_sum))%>%
-               mutate(sig=p.value_sum)%>%
-               mutate(sig=factor(sig,levels=paste0(0:2)))%>%
-               filter(sig==1),
-             aes(x=x,y=y),shape=20,col="red",size=0.6)+
+  # geom_point(data=raster::as.data.frame(t_data, xy = TRUE)%>%
+  #              filter(!is.na(p.value_sum))%>%
+  #              mutate(sig=p.value_sum)%>%
+  #              mutate(sig=factor(sig,levels=paste0(0:2)))%>%
+  #              filter(sig==1),
+  #            aes(x=x,y=y),shape=20,col="red",size=0.6)+
   geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
               filter(!is.na(slope_sum))%>%
               mutate(slope_flag=case_when(
@@ -311,48 +311,48 @@ p_agg1<-ggplot() +
   scale_fill_viridis_d(direction = -1,option = "D")+
   coord_equal() +
   theme_map() +
-  ggtitle("NPP increasing vs decreasing area (red: 1 spe. sig)")+
+  ggtitle("NPP increasing vs decreasing:1991-2018 (P. abies and F. sylvatica)")+
   theme(legend.position="right",
         legend.key.width=unit(0.8, "cm"),
         plot.title = element_text(hjust = 0.5),
         panel.background = element_rect(fill = "white", colour = NA),
         plot.background = element_rect(fill = "white", colour = NA),
         plot.margin = unit(c(0,0,0,0), "cm"))
-p_agg2<-ggplot() +
-  geom_point(data=raster::as.data.frame(t_data, xy = TRUE)%>%
-               filter(!is.na(p.value_sum))%>%
-               mutate(sig=p.value_sum)%>%
-               mutate(sig=factor(sig,levels=paste0(0:2)))%>%
-               filter(sig==2),
-             aes(x=x,y=y),shape=20,col="red",size=0.6)+
-  geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
-              filter(!is.na(slope_sum))%>%
-              mutate(slope_flag=case_when(
-                slope_sum==0 ~ "2 spe. negative",
-                slope_sum==1 ~ "1 spe. negative",
-                slope_sum==2 ~ "2 spe. postive"
-              ))%>%
-              mutate(slope_flag=factor(slope_flag,levels = c("2 spe. negative",
-                                                             "1 spe. negative",
-                                                             "2 spe. positive"
-              ))),
-            aes(x=x, y=y, fill=slope_flag), alpha=0.8) +
-  # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
-  #              fill=NA, color="grey50", size=0.25) +
-  scale_fill_viridis_d(direction = -1,option = "D")+
-  coord_equal() +
-  theme_map() +
-  ggtitle("NPP increasing vs decreasing area (red: 2 spe. sig)")+
-  theme(legend.position="right",
-        legend.key.width=unit(0.8, "cm"),
-        plot.title = element_text(hjust = 0.5),
-        panel.background = element_rect(fill = "white", colour = NA),
-        plot.background = element_rect(fill = "white", colour = NA),
-        plot.margin = unit(c(0,0,0,0), "cm"))
-#
-plot_agg<-plot_grid(p_agg1,p_agg2,nrow=2)
+# p_agg2<-ggplot() +
+#   # geom_point(data=raster::as.data.frame(t_data, xy = TRUE)%>%
+#   #              filter(!is.na(p.value_sum))%>%
+#   #              mutate(sig=p.value_sum)%>%
+#   #              mutate(sig=factor(sig,levels=paste0(0:2)))%>%
+#   #              filter(sig==2),
+#   #            aes(x=x,y=y),shape=20,col="red",size=0.6)+
+#   geom_tile(data=raster::as.data.frame(t_plot_agg, xy = TRUE)%>%
+#               filter(!is.na(slope_sum))%>%
+#               mutate(slope_flag=case_when(
+#                 slope_sum==0 ~ "2 spe. negative",
+#                 slope_sum==1 ~ "1 spe. negative",
+#                 slope_sum==2 ~ "2 spe. postive"
+#               ))%>%
+#               mutate(slope_flag=factor(slope_flag,levels = c("2 spe. negative",
+#                                                              "1 spe. negative",
+#                                                              "2 spe. positive"
+#               ))),
+#             aes(x=x, y=y, fill=slope_flag), alpha=0.8) +
+#   # geom_polygon(data=OR, aes(x=long, y=lat, group=group),
+#   #              fill=NA, color="grey50", size=0.25) +
+#   scale_fill_viridis_d(direction = -1,option = "D")+
+#   coord_equal() +
+#   theme_map() +
+#   ggtitle("NPP increasing vs decreasing area (red: 2 spe. sig)")+
+#   theme(legend.position="right",
+#         legend.key.width=unit(0.8, "cm"),
+#         plot.title = element_text(hjust = 0.5),
+#         panel.background = element_rect(fill = "white", colour = NA),
+#         plot.background = element_rect(fill = "white", colour = NA),
+#         plot.margin = unit(c(0,0,0,0), "cm"))
+# #
+# plot_agg<-plot_grid(p_agg1,p_agg2,nrow=2)
 #
 save.path<-"./manuscript/3PG_results/"
 ggsave(file=paste0(save.path,"decreasing_anomaly_npp_agg_species.png"),
-       plot_agg,height = 10,width = 8)
+       p_agg1,height = 5,width = 9)
 

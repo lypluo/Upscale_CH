@@ -9,6 +9,8 @@ library(cowplot)
 #----------------------------
 #(0)load the data and test code
 #----------------------------
+#limited Env:https://www.envidat.ch/#/metadata/environmental-constraints-on-tree-growth
+
 #code refer to Volo
 data.path<-"D:/data/Upscale_project_data/From_3PG_model/"
 f_NPP_test <- raster::raster(paste0(data.path,'/npp_anomalies/piab_2003.tif'))
@@ -237,7 +239,7 @@ simple_plot_map<-function(df,species_proc_name){
       )
 
   }
-p_merge<-plot_grid(p_plot1,p_plot2,nrow=2)
+p_merge<-plot_grid(p_plot1,p_plot2,nrow=2,align = "hv")
 #
 return(p_merge)
 }
@@ -251,7 +253,7 @@ for (i in 1:length(df_tidy)) {
 ##merge all the plots:
 save.path<-"./manuscript/3PG_results/"
 p_all<-plot_grid(plot_all[[1]],plot_all[[2]],plot_all[[3]],plot_all[[4]],
-          plot_all[[5]],plot_all[[6]],plot_all[[7]],
+          plot_all[[5]],plot_all[[6]],plot_all[[7]],nrow=3,
           align = "hv")
 ggsave(file=paste0(save.path,"limiting_factor_each_species.png"),
        p_all,height = 15,width = 15)

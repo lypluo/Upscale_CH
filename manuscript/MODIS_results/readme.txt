@@ -1,0 +1,1 @@
+mean and standard deviation of NDVI and NDWI during 2000-2013
